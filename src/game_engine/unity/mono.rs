@@ -460,6 +460,24 @@ impl Class {
         })
     }
 
+    /// Tries to find an ancestor class. Passing 0 for the generations parameter
+    /// returns a copy of the original class. Passing 1 is the same as calling
+    /// [`get_parent`](Self::get_parent).
+    pub fn get_ancestor(&self, process: &Process, module: &Module, generations: u8) -> Option<Class> {
+        let mut class = Some(Class { class: self.class });
+
+        for _ in 0..generations {
+            match class {
+                Some(some) => {
+                    class = some.get_parent(process, module);
+                },
+                None => return None
+            }
+        }
+
+        class
+    }
+
     /// Tries to find a field with the specified name in the class. This returns
     /// the offset of the field from the start of an instance of the class. If
     /// it's a static field, the offset will be from the start of the static
@@ -485,6 +503,20 @@ impl Class {
     /// [`get_parent`](Self::get_parent) function.
     pub async fn wait_get_parent(&self, process: &Process, module: &Module) -> Class {
         retry(|| self.get_parent(process, module)).await
+    }
+
+    /// Tries to find an ancestor class. Passing 0 for the generations parameter
+    /// returns a copy of the original class. Passing 1 is the same as calling
+    /// [`wait_get_parent`](Self::wait_get_parent). This is the `await`able version of the
+    /// [`get_ancestor`](Self::get_ancestor) function.
+    pub async fn wait_get_ancestor(&self, process: &Process, module: &Module, generations: u8) -> Class {
+        let mut class = Class { class: self.class };
+
+        for _ in 0..generations {
+             class = class.wait_get_parent(process, module).await;
+        }
+
+        class
     }
 }
 
@@ -549,9 +581,7 @@ impl<const CAP: usize> UnityPointer<CAP> {
             .get_class(process, module, &self.class_name)
             .ok_or(Error {})?;
 
-        for _ in 0..self.nr_of_parents {
-            current_class = current_class.get_parent(process, module).ok_or(Error {})?;
-        }
+        current_class = current_class.get_ancestor(process, module, self.nr_of_parents).ok_or(Error {})?;
 
         let static_table = current_class
             .get_static_table(process, module)
